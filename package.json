@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "pb:setup": "tsx scripts/setup-pocketbase.ts",
-    "pb:migrate": "tsx scripts/migrate-db-to-pocketbase.ts"
+    "pb:migrate": "tsx scripts/migrate-db-to-pocketbase.ts",
+    "pb:add-providers": "tsx scripts/add-service-providers-collection.ts"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",

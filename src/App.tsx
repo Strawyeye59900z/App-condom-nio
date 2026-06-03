@@ -215,7 +215,7 @@ export default function App() {
                 <Building size={18} />
               </div>
               <div>
-                <h1 className="font-display font-bold text-sm tracking-tight text-white">Mansão Heitor Vila Lobos</h1>
+                <h1 className="font-display font-bold text-sm tracking-tight text-white">{import.meta.env.VITE_APP_NAME}</h1>
                 <p className="text-[10px] text-blue-300/60 font-mono tracking-widest">SISTEMA CONDOMINIAL</p>
               </div>
             </div>
@@ -475,7 +475,7 @@ export default function App() {
       {/* MINIMAL FOOTER DECORATION */}
       <footer className="border-t border-dark-border bg-dark-card text-center py-5 select-none pb-24">
         <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono">
-          © {new Date().getFullYear()} Condomínio Portaria Segura • Powered by Google Drive API
+          © {new Date().getFullYear()} {import.meta.env.VITE_APP_NAME} • Sistema Condominial
         </p>
       </footer>
 

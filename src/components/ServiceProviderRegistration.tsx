@@ -144,8 +144,7 @@ export default function ServiceProviderRegistration({ token }: { token: string }
         </div>
         <h2 className="font-bold text-white text-xl">Cadastro Concluído!</h2>
         <p className="text-zinc-400 text-sm leading-relaxed">
-          Sua foto foi registrada. Você já pode acessar o condomínio{' '}
-          <strong className="text-white">Mansão Heitor Vila Lobos</strong> pelo reconhecimento facial.
+          Sua foto foi registrada. Você já pode acessar o condomínio pelo reconhecimento facial.
         </p>
         {providerInfo && (
           <div className="p-3 bg-[#0a0f1e] border border-zinc-800 rounded-xl text-left">
@@ -169,7 +168,7 @@ export default function ServiceProviderRegistration({ token }: { token: string }
             <Building size={18} />
           </div>
           <div>
-            <h1 className="font-bold text-sm text-white">Mansão Heitor Vila Lobos</h1>
+            <h1 className="font-bold text-sm text-white">{import.meta.env.VITE_APP_NAME}</h1>
             <p className="text-[10px] text-blue-300/60 font-mono uppercase tracking-widest">Cadastro de Acesso Facial</p>
           </div>
         </div>

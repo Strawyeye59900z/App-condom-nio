@@ -7,7 +7,6 @@ export interface Resident {
   whatsapp?: string;
   password?: string;
   photoDataUrl?: string;
-  driveFileId?: string;
   registeredAt: string;
   syncStatus: 'pending' | 'synced' | 'failed';
   syncError?: string;
@@ -22,13 +21,6 @@ export interface Employee {
   role?: string;
   active: boolean;
   firstLogin: boolean;
-}
-
-export interface SyncProgress {
-  residentId: string;
-  residentName: string;
-  status: 'pending' | 'syncing' | 'completed' | 'failed';
-  error?: string;
 }
 
 export interface CommonArea {

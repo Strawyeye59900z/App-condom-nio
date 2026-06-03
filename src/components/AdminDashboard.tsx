@@ -5,31 +5,27 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  FolderSync, 
-  FolderOpen, 
-  Trash2, 
-  Eye, 
-  Search, 
-  CheckCircle2, 
-  AlertCircle, 
-  Clock, 
-  Users, 
-  RefreshCw, 
+import {
+  Trash2,
+  Eye,
+  Search,
+  CheckCircle2,
+  Clock,
+  Users,
+  RefreshCw,
   LogOut,
   RotateCcw,
-  ExternalLink,
   ChevronRight,
   ShieldCheck,
   Building,
   Lock,
   Download,
   ShieldAlert,
-  KeyRound
+  KeyRound,
+  FolderSync
 } from 'lucide-react';
-import { Resident, SyncProgress, ServiceProvider } from '../types';
+import { Resident, ServiceProvider } from '../types';
 import { logout } from '../pocketbase';
-import { findOrCreateFolder, uploadResidentPhoto, deleteDriveFile } from '../driveService';
 import ReservationSection from './ReservationSection';
 import ReservationCalendar from './ReservationCalendar';
 import AdminAreasPanel from './AdminAreasPanel';
@@ -60,15 +56,11 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   const [deletingProviderId, setDeletingProviderId] = useState<string | null>(null);
   // Session is owned by the parent <App>; this component is fully controlled.
   const googleUser = user;
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [loading, setLoading] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncLogs, setSyncLogs] = useState<SyncProgress[]>([]);
-  const [mainFolderId, setMainFolderId] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string>('');
   const [loggingInToggle, setLoggingInToggle] = useState<boolean>(false);
   
@@ -76,8 +68,8 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   const [previewPhoto, setPreviewPhoto] = useState<{ name: string; url: string } | null>(null);
   const [selectedNotRegisteredResident, setSelectedNotRegisteredResident] = useState<Resident | null>(null);
 
-  // States for Authorized Admin and Drive configurations
-  const [authorizedAdmins, setAuthorizedAdmins] = useState<string[]>(['gabriel.nunez.costa@gmail.com']);
+  // States for Authorized Admin management
+  const [authorizedAdmins, setAuthorizedAdmins] = useState<string[]>([import.meta.env.VITE_ADMIN_EMAIL || '']);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [adminError, setAdminError] = useState('');
   const [adminSuccess, setAdminSuccess] = useState('');
@@ -87,7 +79,6 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   const [resettingResidentId, setResettingResidentId] = useState<string | null>(null);
   const [residentResetPassword, setResidentResetPassword] = useState('');
   const [residentResetUsername, setResidentResetUsername] = useState('');
-  const [sharedDriveInfo, setSharedDriveInfo] = useState<{ email?: string; expiresAt?: string } | null>(null);
 
   // Employees administration states and actions
   const [employees, setEmployees] = useState<{ id: string; name: string; needsPasswordSet: boolean; photoDataUrl?: string }[]>([]);
@@ -265,57 +256,6 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
     }
   };
 
-  // Fetch dynamic shared Drive config
-  const fetchSharedDriveConfig = async () => {
-    try {
-      const res = await fetch('/api/drive-config');
-      if (res.ok) {
-        const config = await res.json();
-        if (config.sharedAccessToken && config.tokenExpiresAt) {
-          const expTime = new Date(config.tokenExpiresAt).getTime();
-          const nowTime = new Date().getTime();
-          if (expTime > nowTime) {
-            setAccessToken(config.sharedAccessToken);
-            setSharedDriveInfo({
-              email: config.sharedAdminEmail,
-              expiresAt: config.tokenExpiresAt
-            });
-          }
-        }
-      }
-    } catch (err) {
-      console.warn("Could not load shared drive config", err);
-    }
-  };
-
-  // Set current active session as standard global Google Drive
-  const handleSaveDefaultDrive = async () => {
-    if (!accessToken || !googleUser?.email) return;
-    try {
-      const expires = new Date();
-      expires.setHours(expires.getHours() + 1); // 1 hour access
-      const res = await fetch('/api/drive-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken,
-          email: googleUser.email,
-          expiresAt: expires.toISOString()
-        })
-      });
-      if (res.ok) {
-        setSharedDriveInfo({
-          email: googleUser.email,
-          expiresAt: expires.toISOString()
-        });
-        alert('Este Google Drive foi definido com sucesso como o padrão global do condomínio pelas próximas 1 hora!');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao salvar Drive padrão.');
-    }
-  };
-
   // Add a new administrator email
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -348,7 +288,7 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   const handleDeleteAdmin = async (emailToDelete: string) => {
     setAdminError('');
     setAdminSuccess('');
-    if (emailToDelete === 'gabriel.nunez.costa@gmail.com') {
+    if (emailToDelete === import.meta.env.VITE_ADMIN_EMAIL) {
       setAdminError('Não é possível remover o administrador principal.');
       return;
     }
@@ -462,19 +402,14 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   useEffect(() => {
     fetchResidents();
     fetchAdmins();
-    fetchSharedDriveConfig();
     fetchEmployees();
     fetchReservations();
-
-    // Refresh residents every 10s to reflect automatic Hikvision sync status changes
-    const residentRefresh = setInterval(fetchResidents, 10000);
 
     const handleUpdate = () => {
       fetchReservations();
     };
     window.addEventListener('reservation-updated', handleUpdate);
     return () => {
-      clearInterval(residentRefresh);
       window.removeEventListener('reservation-updated', handleUpdate);
     };
   }, []);
@@ -665,17 +600,6 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
     }
   };
 
-  // Handle Google Auth Sign In (Coordinator only)
-  const handleGoogleSignIn = async () => {
-    setAuthError('');
-    setLoggingInToggle(true);
-    try {
-      // Google Sign-In removed — use email/password login above
-    } finally {
-      setLoggingInToggle(false);
-    }
-  };
-
   // Handle Sign Out — only triggered by the explicit logout button
   const handleGoogleSignOut = async () => {
     try {
@@ -750,138 +674,6 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
       alert('Erro ao excluir do servidor.');
     } finally {
       setDeletingResidentId(null);
-    }
-  };
-
-  // Run the batch synchronization to Google Drive
-  const handleSyncToDrive = async () => {
-    if (!accessToken) {
-      alert('Por favor, faça login com o Google primeiro.');
-      return;
-    }
-
-    setIsSyncing(true);
-    setSyncLogs([]);
-
-    // 1. Fetch latest state of residents to ensure we have any new records
-    let currentResidents: Resident[] = [];
-    try {
-      const response = await fetch('/api/residents');
-      if (response.ok) {
-        currentResidents = await response.json();
-        setResidents(currentResidents);
-      } else {
-        currentResidents = residents;
-      }
-    } catch (err) {
-      currentResidents = residents;
-    }
-
-    // 2. Identify pending/failed registrations that have valid captured images
-    const pendingSyncList = currentResidents.filter(
-      r => r.photoDataUrl && (r.syncStatus === 'pending' || r.syncStatus === 'failed')
-    );
-
-    if (pendingSyncList.length === 0) {
-      alert('Todas as fotos de moradores registradas já foram sincronizadas com o Google Drive!');
-      setIsSyncing(false);
-      return;
-    }
-
-    // Instantiate logging rows for interface feedback
-    const initialLogs: SyncProgress[] = pendingSyncList.map(r => ({
-      residentId: r.id,
-      residentName: r.name,
-      status: 'pending',
-    }));
-    setSyncLogs(initialLogs);
-
-    try {
-      // 3. Obtain or create Root Folder target in Drive: "Fotos Reconhecimento Facial Condomínio"
-      const rootFolderId = await findOrCreateFolder(accessToken, 'Fotos Reconhecimento Facial Condomínio');
-      setMainFolderId(rootFolderId);
-
-      // 4. Sequence sync loop for every resident
-      for (let index = 0; index < pendingSyncList.length; index++) {
-        const resident = pendingSyncList[index];
-        
-        // Update logging state to syncing
-        setSyncLogs(prev => prev.map(log => 
-          log.residentId === resident.id ? { ...log, status: 'syncing' } : log
-        ));
-
-        try {
-          // A. Define the Apartment Subfolder name
-          const subfolderName = `Apto ${resident.apartment} - Bloco ${resident.block}`;
-          
-          // B. Obtain or create the subfolder in Google Drive
-          const aptFolderId = await findOrCreateFolder(accessToken, subfolderName, rootFolderId);
-
-          // C. Delete old photo in Drive if existed to prevent duplicate files
-          if (resident.driveFileId) {
-            try {
-              await deleteDriveFile(accessToken, resident.driveFileId);
-            } catch (delErr) {
-              console.warn(`Could not delete old file ${resident.driveFileId} from Drive:`, delErr);
-            }
-          }
-
-          // D. Upload the brand new Base64 image
-          const fileName = `${resident.name}.jpg`;
-          const driveFileId = await uploadResidentPhoto(
-            accessToken,
-            fileName,
-            aptFolderId,
-            resident.photoDataUrl!
-          );
-
-          // D. Store status back to local Express server DB
-          const updateResponse = await fetch('/api/residents/update-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: resident.id,
-              syncStatus: 'synced',
-              driveFileId: driveFileId,
-            }),
-          });
-
-          if (!updateResponse.ok) {
-            throw new Error('Falha ao atualizar banco de dados.');
-          }
-
-          // E. Update logging outcome to completed
-          setSyncLogs(prev => prev.map(log => 
-            log.residentId === resident.id ? { ...log, status: 'completed' } : log
-          ));
-
-        } catch (error: any) {
-          console.error(`Sync error for ${resident.name}:`, error);
-          
-          // Update logging state to failed
-          setSyncLogs(prev => prev.map(log => 
-            log.residentId === resident.id ? { ...log, status: 'failed', error: error.message || 'Erro de upload' } : log
-          ));
-
-          // Log failure on backend server
-          await fetch('/api/residents/update-sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: resident.id,
-              syncStatus: 'failed',
-              syncError: error.message || 'Erro desconhecido no Drive',
-            }),
-          }).catch(err => console.error("Could not register sync failure on server", err));
-        }
-      }
-
-      // Re-fetch all residents to refresh table values
-      fetchResidents();
-    } catch (rootError: any) {
-      alert('Sincronização abortada devido a erro nas pastas raiz do Drive: ' + rootError.message);
-    } finally {
-      setIsSyncing(false);
     }
   };
 
@@ -1047,43 +839,6 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
               </button>
             </form>
 
-            {/* DIVIDER */}
-            <div className="relative flex items-center justify-center select-none pt-2">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-dark-border"></div>
-              </div>
-              <span className="relative px-3 bg-dark-card text-[9px] font-mono font-bold tracking-widest text-zinc-500 uppercase">
-                Acesso Coordenador (Google)
-              </span>
-            </div>
-
-            {/* GOOGLE SIGN IN BUTTON FOR ADM PROJECT COORDINATOR ONLY */}
-            <div className="pt-1 select-none">
-              <button 
-                id="admin-gateway-login-btn"
-                onClick={handleGoogleSignIn}
-                disabled={loggingInToggle}
-                className="gsi-material-button w-full flex items-center justify-center cursor-pointer shadow-sm hover:shadow active:scale-[0.98] transition-transform"
-              >
-                <div className="gsi-material-button-state"></div>
-                <div className="gsi-material-button-content-wrapper justify-center">
-                  <div className="gsi-material-button-icon">
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: "block" }}>
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                      <path fill="none" d="M0 0h48v48H0z"></path>
-                    </svg>
-                  </div>
-                  <span className="gsi-material-button-contents select-none">{loggingInToggle ? 'Verificando...' : 'Entrar com o Google'}</span>
-                </div>
-              </button>
-              <p className="text-[9px] text-zinc-500 font-sans tracking-wide text-center mt-3 leading-relaxed">
-                * O acesso Google é restrito ao coordenador do projeto. Se o botão Google não funcionar, use o login por <strong className="text-zinc-400">E-mail e Senha</strong> acima — inclusive para o e-mail do coordenador.
-              </p>
-            </div>
-
             <div className="pt-4 border-t border-dark-border/60 mt-5 text-center">
               <button
                 type="button"
@@ -1102,75 +857,23 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
   return (
     <div id="admin-dashboard-container" className="space-y-6 w-full max-w-7xl mx-auto">
       
-      {/* GOOGLE DRIVE SYNC HUD HEADER */}
-      <div className="bg-dark-card border border-dark-border rounded-2xl shadow-xl shadow-black/30 p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+      {/* ADMIN HEADER */}
+      <div className="bg-dark-card border border-dark-border rounded-2xl shadow-xl shadow-black/30 p-6 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="p-3.5 bg-gold-light rounded-xl text-gold shrink-0">
             <Building size={24} />
           </div>
           <div>
             <h1 className="font-display text-xl font-bold text-white tracking-tight">Área do Síndico</h1>
-            <p className="text-xs text-zinc-400 mt-1.5 max-w-xl leading-relaxed">
-              Gerencie os moradores, visualize faciais cadastradas e sincronize arquivos diretamente com pastas organizadas por apartamento no seu Google Drive.
-            </p>
+            <p className="text-xs text-zinc-400 mt-1 font-mono">{googleUser?.email}</p>
           </div>
         </div>
-
-        {/* AUTH BLOCK */}
-        <div className="shrink-0 w-full md:w-auto">
-          {!googleUser ? (
-            <div className="space-y-2">
-              {/* Official styled GSI button */}
-              <button 
-                id="gsi-drive-login-btn"
-                onClick={handleGoogleSignIn}
-                className="gsi-material-button w-full flex items-center justify-center cursor-pointer shadow-sm hover:shadow"
-              >
-                <div className="gsi-material-button-state"></div>
-                <div className="gsi-material-button-content-wrapper">
-                  <div className="gsi-material-button-icon">
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" style={{ display: "block" }}>
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                      <path fill="none" d="M0 0h48v48H0z"></path>
-                    </svg>
-                  </div>
-                  <span className="gsi-material-button-contents">Habilitar Google Drive</span>
-                </div>
-              </button>
-              <p className="text-[10px] text-zinc-505 text-center uppercase tracking-wider font-mono">
-                Requerido para gerenciar fotos em seu Google Drive
-              </p>
-            </div>
-          ) : (
-            <div className="bg-dark-input border border-dark-border p-3 rounded-xl flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2.5">
-                {googleUser.photoURL && (
-                  <img 
-                    src={googleUser.photoURL} 
-                    alt="Perfil" 
-                    className="w-8 h-8 rounded-full border border-dark-border" 
-                    referrerPolicy="no-referrer"
-                  />
-                )}
-                <div>
-                  <h4 className="text-xs font-semibold text-zinc-200 leading-tight">{googleUser.displayName}</h4>
-                  <p className="text-[10px] text-zinc-500 font-mono leading-none mt-1">{googleUser.email}</p>
-                </div>
-              </div>
-              <button 
-                id="gsi-drive-logout-btn"
-                onClick={handleGoogleSignOut}
-                title="Desconectar do Google"
-                className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-950/30 rounded-lg cursor-pointer transition-colors"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          onClick={handleGoogleSignOut}
+          className="flex items-center gap-2 px-4 py-2 bg-red-950/30 hover:bg-red-900/40 border border-red-900/30 text-red-400 hover:text-red-300 text-xs font-semibold rounded-xl cursor-pointer transition-all"
+        >
+          <LogOut size={14} /> Sair
+        </button>
       </div>
 
       {/* TABS SELECTOR FOR ADMIN */}
@@ -1244,7 +947,7 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
             <CheckCircle2 size={16} />
           </div>
           <h3 className="font-display text-2xl font-bold text-emerald-400">{syncedCount}</h3>
-          <p className="text-[10px] text-zinc-500 mt-1.5 font-mono">Arquivos no Drive</p>
+          <p className="text-[10px] text-zinc-500 mt-1.5 font-mono">Com foto cadastrada</p>
         </div>
 
         <div className="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-xl shadow-black/10">
@@ -1276,111 +979,9 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* LEFT SIDEBAR SECTION */}
         <div className="lg:col-span-1 flex flex-col gap-6">
-          
-          {/* SYNC PANEL */}
-          <div className="bg-dark-card border border-dark-border rounded-2xl shadow-xl shadow-black/30 p-6 flex flex-col justify-between">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <FolderSync size={18} className="text-gold" />
-                <h3 className="font-display text-base font-semibold text-white">Sincronizador Drive</h3>
-              </div>
-              <p className="text-xs text-zinc-400 leading-relaxed">
-                Mecanismo seguro para exportar as fotos faciais ativas do app e disponibilizá-las organizadas em pastas no Google Drive do síndico.
-              </p>
-
-              {googleUser ? (
-                <div className="space-y-4 pt-2">
-                  {/* Share drive indication */}
-                  {googleUser.isSharedSession ? (
-                    <div className="p-3 bg-emerald-950/35 border border-emerald-900/35 rounded-xl text-[11px] text-emerald-400 leading-snug">
-                      <p className="font-semibold">✔ Autenticação Padrão Ativa</p>
-                      <p className="text-[10px] text-zinc-400 mt-0.5">As fotos serão salvas no Google Drive de <strong>{googleUser.email}</strong>.</p>
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-purple-950/30 border border-purple-900/20 rounded-xl text-[11px] text-purple-400 space-y-2">
-                      <p className="font-semibold">☁ Conta Google Conectada</p>
-                      <p className="text-[10px] text-zinc-400 leading-snug">Você está usando sua sessão atual ({googleUser.email}).</p>
-                      <button
-                        onClick={handleSaveDefaultDrive}
-                        className="w-full py-1.5 px-3 bg-purple-700 hover:bg-purple-600 text-white font-bold rounded-lg text-[10px] transition-colors uppercase tracking-wider font-mono cursor-pointer"
-                      >
-                        Tornar este Drive Padrão do Prédio
-                      </button>
-                    </div>
-                  )}
-
-                  {sharedDriveInfo && !googleUser.isSharedSession && (
-                    <div className="text-[9px] text-zinc-500 font-mono text-center leading-normal">
-                      Atualmente, a conta padrão ativa na nuvem é: {sharedDriveInfo.email}
-                    </div>
-                  )}
-
-                  <button
-                    id="admin-start-sync-btn"
-                    onClick={handleSyncToDrive}
-                    disabled={isSyncing || pendingCount === 0}
-                    className="w-full py-3 px-4 bg-gold hover:bg-gold-hover text-black font-semibold rounded-xl text-sm transition-all cursor-pointer shadow-lg shadow-gold/15 active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none font-display font-semibold"
-                  >
-                    {isSyncing ? (
-                      <>
-                        <RefreshCw size={16} className="animate-spin" />
-                        Sincronizando...
-                      </>
-                    ) : (
-                      <>
-                        <FolderSync size={16} />
-                        Sincronizar {pendingCount} Foto(s)
-                      </>
-                    )}
-                  </button>
-
-                  {mainFolderId && (
-                    <a
-                      id="admin-open-drive-link"
-                      href={`https://drive.google.com/drive/folders/${mainFolderId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="w-full py-2.5 px-4 bg-emerald-950/40 text-emerald-400 hover:bg-emerald-900/40 font-semibold rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-900/30 font-display"
-                    >
-                      <FolderOpen size={14} /> Abrir Pasta no Google Drive <ExternalLink size={12} />
-                    </a>
-                  )}
-                </div>
-              ) : (
-                <div className="p-4 bg-dark-input rounded-xl border border-dark-border text-center space-y-3 pt-6">
-                  <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-                    Por favor, habilite o Google Drive utilizando o botão no topo para autenticar e salvar todas as fotos automaticamente neste condomínio.
-                  </p>
-                  <div className="inline-flex items-center gap-1 bg-gold-light text-gold text-[10px] px-2.5 py-1 rounded-md font-semibold tracking-wide uppercase border border-gold/10">
-                    Conexão Requerida
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* REAL TIME CONSOLE STEPS */}
-            {syncLogs.length > 0 && (
-              <div className="mt-6 pt-6 border-t border-dark-border space-y-3">
-                <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider font-mono">Console de Operação</h4>
-                <div className="bg-dark-input rounded-xl p-3 max-h-[160px] overflow-y-auto space-y-2 font-mono text-[10px] text-zinc-300 border border-dark-border select-none">
-                  {syncLogs.map((log) => (
-                    <div key={log.residentId} className="flex items-center justify-between gap-2 border-b border-dark-border pb-1 last:border-b-0 last:pb-0">
-                      <span className="truncate text-zinc-400 max-w-[140px]">{log.residentName}</span>
-                      <span className="shrink-0 flex items-center">
-                        {log.status === 'pending' && <span className="text-zinc-600 font-medium">AGUARDANDO</span>}
-                        {log.status === 'syncing' && <span className="text-amber-400 animate-pulse font-medium">UPLOADING...</span>}
-                        {log.status === 'completed' && <span className="text-emerald-400 font-bold flex items-center gap-0.5 font-sans">OK</span>}
-                        {log.status === 'failed' && <span className="text-red-400 font-bold" title={log.error}>FALHOU</span>}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* ADMIN MANAGEMENT CARD */}
           <div className="bg-dark-card border border-dark-border rounded-2xl shadow-xl shadow-black/30 p-6 space-y-4">
@@ -1389,7 +990,7 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
               <h3 className="font-display text-base font-semibold text-white">Administradores Autorizados</h3>
             </div>
             <p className="text-xs text-zinc-400 leading-relaxed">
-              Dê acesso de administrador a outros e-mails do Google para gerenciar moradores e sincronizar arquivos.
+              Dê acesso de administrador a outros e-mails para gerenciar moradores e configurações.
             </p>
 
             <form onSubmit={handleAddAdmin} className="space-y-2">
@@ -1414,7 +1015,7 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
 
             <div className="border-t border-dark-border/40 pt-3 space-y-1.5 max-h-[148px] overflow-y-auto pr-1">
               {authorizedAdmins.map((email) => {
-                const isPrimary = email === 'gabriel.nunez.costa@gmail.com';
+                const isPrimary = email === import.meta.env.VITE_ADMIN_EMAIL;
                 return (
                   <div key={email} className="flex items-center justify-between gap-2 p-2 bg-dark-input/30 rounded-lg border border-dark-border/10 text-xs">
                     <span className="truncate text-zinc-300 font-mono text-[10px]">{email}</span>
@@ -1444,8 +1045,16 @@ export default function AdminDashboard({ user, onLogin, onLogout, onBack }: Admi
             <h3 className="font-display text-base font-semibold text-white flex items-center gap-2">
               <Users size={18} className="text-gold" />
               Lista de Residentes
+              <button
+                onClick={fetchResidents}
+                disabled={loading}
+                title="Atualizar lista"
+                className="ml-1 p-1.5 rounded-lg border border-dark-border text-zinc-400 hover:text-white bg-dark-input hover:bg-dark-hover transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              </button>
             </h3>
-            
+
             {/* Filter buttons */}
             <div className="flex flex-wrap gap-1">
               <button

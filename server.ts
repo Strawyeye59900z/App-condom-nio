@@ -23,7 +23,6 @@ interface ServerResident {
   registeredAt: string;
   syncStatus: 'pending' | 'synced' | 'failed';
   syncError?: string;
-  driveFileId?: string;
   deviceRegistered?: boolean;
   hikvisionSyncStatus?: Record<string, HikvisionFaceSyncStatus>;
   firstLogin: boolean;
@@ -700,11 +699,10 @@ async function startServer() {
 
   // Update sync status on the server
   app.post('/api/residents/update-sync', async (req, res) => {
-    const { id, syncStatus, driveFileId, syncError } = req.body;
+    const { id, syncStatus, syncError } = req.body;
     if (!id || !syncStatus) return res.status(400).json({ error: 'ID e status são obrigatórios.' });
     try {
       const updateData: any = { syncStatus };
-      if (driveFileId) updateData.driveFileId = driveFileId;
       if (syncError) updateData.syncError = syncError; else updateData.syncError = '';
       await pbAdmin.collection('residents').update(id, updateData);
       res.json({ message: 'Status atualizado com sucesso.' });
@@ -1014,31 +1012,6 @@ async function startServer() {
       admins.splice(index, 1);
       await pbSetSetting('authorized_admins', admins);
       res.json({ success: true, authorizedAdmins: admins });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Get default shared Drive configurations
-  app.get('/api/drive-config', async (req, res) => {
-    try {
-      res.json(await pbSetting('drive_config') || {});
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Store default shared Drive configurations
-  app.post('/api/drive-config', async (req, res) => {
-    const { accessToken, folderId, email, expiresAt } = req.body;
-    try {
-      await pbSetSetting('drive_config', {
-        sharedAccessToken: accessToken || '',
-        sharedFolderId: folderId || '',
-        sharedAdminEmail: email || '',
-        tokenExpiresAt: expiresAt || '',
-      });
-      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

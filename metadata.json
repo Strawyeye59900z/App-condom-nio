@@ -1,6 +1,6 @@
 {
-  "name": "Heitor Vila Lobos",
-  "description": "Aplicativo para cadastramento de reconhecimento facial de moradores do condomínio Heitor Vila Lobos, com upload organizado no Google Drive.",
+  "name": "Sistema Condominial",
+  "description": "Sistema de gestão condominial com reconhecimento facial, reservas, encomendas e controle de acesso via Hikvision.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
